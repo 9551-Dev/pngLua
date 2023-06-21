@@ -157,7 +157,7 @@ setmetatable(Pixel,{__call=function(methods,stream, depth, colorType, palette)
         self.r = stream:readInt(bps)/255
         self.g = stream:readInt(bps)/255
         self.b = stream:readInt(bps)/255
-        self.d = stream:readInt(bps)/255
+        self.a = stream:readInt(bps)/255
     end
 
     return setmetatable(self,{__index=methods})
