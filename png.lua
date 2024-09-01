@@ -46,7 +46,7 @@ setmetatable(Stream,{__call=function(methods,param)
         data     = {}
     }
 
-    local str = ""	
+    local str = ""
     if (param.inputF ~= nil) then
         local file = fs.open(param.inputF, "rb")
         str = file.readAll()
@@ -78,7 +78,7 @@ setmetatable(Chunk,{__call=function(methods,stream,chunk)
         self.data   = stream:readChars(self.length)
         self.crc    = stream:readChars(4)
     end
-    
+
     return setmetatable(self,{__index=methods})
 end})
 
@@ -121,49 +121,56 @@ setmetatable(PLTE,{__call=function(methods,chunk)
     return setmetatable(self,{__index=methods})
 end})
 
-setmetatable(Pixel,{__call=function(methods,stream, depth, colorType, palette)
-    local self = {}
+local remap_dummy = {}
+setmetatable(Pixel,{__call=function(methods,stream,depth,colorType,palette,remap)
+    remap = remap or remap_dummy
+    local self = {remap=remap}
+
+    local remap_r = remap.r or "r"
+    local remap_g = remap.g or "g"
+    local remap_b = remap.b or "b"
+    local remap_a = remap.a or "a"
 
     local bps = math.floor(depth/8)
     if colorType == 0 then
         local grey = stream:readInt(bps)
-        self.r = grey/255
-        self.g = grey/255
-        self.b = grey/255
-        self.a = 1
+        self[remap_r] = grey/255
+        self[remap_g] = grey/255
+        self[remap_b] = grey/255
+        self[remap_a] = 1
     end
     if colorType == 2 then
-        self.r = stream:readInt(bps)/255
-        self.g = stream:readInt(bps)/255
-        self.b = stream:readInt(bps)/255
-        self.a = 1
+        self[remap_r] = stream:readInt(bps)/255
+        self[remap_g] = stream:readInt(bps)/255
+        self[remap_b] = stream:readInt(bps)/255
+        self[remap_a] = 1
     end
     if colorType == 3 then
         local index = stream:readInt(bps)+1
         local color = palette:getColor(index)
-        self.r = color.R/255
-        self.g = color.G/255
-        self.b = color.B/255
-        self.a = 1
+        self[remap_r] = color.R/255
+        self[remap_g] = color.G/255
+        self[remap_b] = color.B/255
+        self[remap_a] = 1
     end
     if colorType == 4 then
         local grey = stream:readInt(bps)
-        self.r = grey/255
-        self.g = grey/255
-        self.b = grey/255
-        self.a = stream:readInt(bps)/255
+        self[remap_r] = grey/255
+        self[remap_g] = grey/255
+        self[remap_b] = grey/255
+        self[remap_a] = stream:readInt(bps)/255
     end
     if colorType == 6 then
-        self.r = stream:readInt(bps)/255
-        self.g = stream:readInt(bps)/255
-        self.b = stream:readInt(bps)/255
-        self.a = stream:readInt(bps)/255
+        self[remap_r] = stream:readInt(bps)/255
+        self[remap_g] = stream:readInt(bps)/255
+        self[remap_b] = stream:readInt(bps)/255
+        self[remap_a] = stream:readInt(bps)/255
     end
 
     return setmetatable(self,{__index=methods})
 end})
 
-setmetatable(ScanLine,{__call=function(methods,stream,depth,colorType,palette,length)
+setmetatable(ScanLine,{__call=function(methods,stream,depth,colorType,palette,length,remap)
     local self = {
         pixels 	   = {},
         filterType = 0
@@ -180,7 +187,7 @@ setmetatable(ScanLine,{__call=function(methods,stream,depth,colorType,palette,le
     local startLoc = stream.position
     if self.filterType == 0 then
         for i = 1, length do
-            self.pixels[i] = Pixel(stream, depth, colorType, palette)
+            self.pixels[i] = Pixel(stream,depth,colorType,palette,remap)
         end
     end
     if self.filterType == 1 then
@@ -194,7 +201,7 @@ setmetatable(ScanLine,{__call=function(methods,stream,depth,colorType,palette,le
                 stream:writeByte((curByte + lastByte) % 256)
             end
             stream:seek(-bpp)
-            self.pixels[i] = Pixel(stream, depth, colorType, palette)
+            self.pixels[i] = Pixel(stream,depth,colorType,palette,remap)
         end
     end
     if self.filterType == 2 then
@@ -207,7 +214,7 @@ setmetatable(ScanLine,{__call=function(methods,stream,depth,colorType,palette,le
                 stream:writeByte((curByte + lastByte) % 256)
             end
             stream:seek(-bpp)
-            self.pixels[i] = Pixel(stream, depth, colorType, palette)
+            self.pixels[i] = Pixel(stream,depth,colorType,palette,remap)
         end
     end
     if self.filterType == 3 then
@@ -223,7 +230,7 @@ setmetatable(ScanLine,{__call=function(methods,stream,depth,colorType,palette,le
                 stream:writeByte((curByte + math.floor((lastByte+priByte)/2)) % 256)
             end
             stream:seek(-bpp)
-            self.pixels[i] = Pixel(stream, depth, colorType, palette)
+            self.pixels[i] = Pixel(stream,depth,colorType,palette,remap)
         end
     end
     if self.filterType == 4 then
@@ -242,14 +249,14 @@ setmetatable(ScanLine,{__call=function(methods,stream,depth,colorType,palette,le
                 stream:writeByte((curByte + methods._PaethPredict(self,lastByte,priByte,lastPriByte)) % 256)
             end
             stream:seek(-bpp)
-            self.pixels[i] = Pixel(stream, depth, colorType, palette)
+            self.pixels[i] = Pixel(stream,depth,colorType,palette,remap)
         end
     end
 
     return setmetatable(self,{__index=methods})
 end})
 
-setmetatable(PngImage,{__call=function(methods,path,custom_stream,progCallback)
+setmetatable(PngImage,{__call=function(methods,path,custom_stream,progCallback,data_remap)
     local self = {
         width     = 0,
         height    = 0,
@@ -257,6 +264,13 @@ setmetatable(PngImage,{__call=function(methods,path,custom_stream,progCallback)
         colorType = 0,
         scanLines = {}
     }
+
+    if data_remap then
+        self.remap_r = data_remap.r
+        self.remap_g = data_remap.g
+        self.remap_b = data_remap.b
+        self.remap_a = data_remap.a
+    end
 
     local str = Stream(custom_stream or {inputF = path})
     if str:readChars(8) ~= "\137\080\078\071\013\010\026\010" then error("Not a PNG") end
@@ -286,7 +300,7 @@ setmetatable(PngImage,{__call=function(methods,path,custom_stream,progCallback)
     local imStr = Stream({input = table.concat(output)})
 
     for i = 1, self.height do
-        self.scanLines[i] = ScanLine(imStr, self.depth, self.colorType, plte, self.width)
+        self.scanLines[i] = ScanLine(imStr,self.depth,self.colorType,plte,self.width,data_remap)
         if progCallback ~= nil then progCallback(i, self.height) end
     end
 
@@ -383,7 +397,14 @@ function Pixel:format()
 end
 
 function Pixel:unpack()
-    return self.r,self.g,self.b,self.a
+    local remap_r = self.remap.r or "r"
+    local remap_g = self.remap.g or "g"
+    local remap_b = self.remap.b or "b"
+    local remap_a = self.remap_a or "a"
+    return  self[remap_r],
+            self[remap_g],
+            self[remap_b],
+            self[remap_a]
 end
 
 function ScanLine:bitFromColorType(colorType)
@@ -490,7 +511,7 @@ local function bitstream_from_bytestream(bys)
         buf_nbit = buf_nbit - nbits
         return bits
     end
-    
+
     is_bitstream[o] = true
 
     return o
@@ -544,7 +565,7 @@ local function HuffmanTable(init, is_full)
         end
         return res
     end
-    
+
     local tfirstcode = memoize(function(bits) return pow2[minbits] + msb(bits, minbits) end)
 
     function t:read(bs)
@@ -644,16 +665,16 @@ local function parse_compressed_item(bs, outstate, littable, disttable)
         end
         if not tdecode_len_nextrabits then
             local t = {}
-            
+
             for i=257,285 do
                 local j = math_max(i - 261, 0)
                 t[i] = rshift(j, 2)
             end
-            
+
             t[285] = 0
             tdecode_len_nextrabits = t
         end
-        
+
         local len_base = tdecode_len_base[val]
         local nextrabits = tdecode_len_nextrabits[val]
         local extrabits = bs:read(nextrabits)
@@ -748,9 +769,9 @@ function lib.inflate_zlib(t)
     bs:read(13)
     if bs:read(1) == 1 then bs:read(32) end
     bs:read(2)
-    
+
     local data_adler32 = 1
-    
+
     inflate{input=bs, output=
         disable_crc and t.output or function(byte)
             data_adler32 = adler32(byte, data_adler32)
